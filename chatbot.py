@@ -32,6 +32,11 @@ DOMAIN_REDIRECT = (
     "I'm Nexa, your AI car service advisor. 🚗 I can help with vehicle maintenance, "
     "repairs, troubleshooting, and service pricing. What would you like to know about your car?"
 )
+
+
+class DomainValidationError(RuntimeError):
+    """Scope could not be checked; no advisory answer was generated."""
+
 DOMAIN_INSTRUCTIONS = f"""
 ### Mandatory Automotive-Only Guardrails:
 - You are Nexa, exclusively an automotive service advisor. Answer only vehicle
@@ -215,11 +220,9 @@ class CarServiceAdvisorChatbot:
                 scoped_text = re.sub(r"\b\d+\s*[+*/=]\s*\d+\b", "", scoped_text)
             if _OFF_TOPIC.search(scoped_text):
                 return False
-        if not _AUTOMOTIVE.search(normalized) and not self._domain_history:
-            return False
-
         # Semantic validation prevents keyword stuffing and context laundering.
-        # History and the candidate are JSON data, never classifier instructions.
+        # Let it assess implicit symptoms too: a car-care question need not
+        # contain a specific keyword or repeat the word "car".
         try:
             verdict = self.client.responses.create(
                 model=self.model,
@@ -228,8 +231,11 @@ class CarServiceAdvisorChatbot:
                     "Return allowed=true ONLY if the candidate exclusively requests automotive "
                     "maintenance, troubleshooting, repairs, diagnostics, vehicle care or safety, "
                     "vehicle law (Motor Vehicles Act allowed), service prices, supported makes, "
-                    "location/hours of the car center, or booking information. Brief greetings "
-                    "and clarifying replies during an automotive conversation are allowed. "
+                    "location/hours of the car center, or booking information. This is the "
+                    "entrypoint of a car-care advisor, so short vehicle symptom descriptions "
+                    "such as 'red indicator light on dash', 'won't turn over', or 'smoke from "
+                    "under the bonnet' are automotive even without the word car. Initial "
+                    "greetings and clarifying replies in an automotive conversation are allowed. "
                     "Use accepted_history only to resolve genuine automotive follow-ups such as "
                     "a make/year, yes/no, 'only while braking', 'is it safe?', or 'how much?'. "
                     "Reject unrelated general knowledge, politics, non-vehicle law, medicine, "
@@ -255,12 +261,15 @@ class CarServiceAdvisorChatbot:
                 store=False,
             )
             if getattr(verdict, "status", "completed") != "completed":
-                return False
+                raise ValueError("Scope validation did not complete")
             data = json.loads(verdict.output_text)
-            return isinstance(data, dict) and data == {"allowed": True} and type(data["allowed"]) is bool
-        except Exception:
-            # No generation request is made when validation is unavailable/invalid.
-            return False
+            if not isinstance(data, dict) or set(data) != {"allowed"} or type(data["allowed"]) is not bool:
+                raise ValueError("Invalid scope validation result")
+            return data["allowed"]
+        except Exception as error:
+            # Keep generation blocked, but do not mislabel an unavailable
+            # validator as an off-topic question.
+            raise DomainValidationError("The advisor could not check this question. Please try again.") from error
 
     def ask(self, user_message: str) -> str:
         """Validate scope on the server before generating an automotive reply."""

@@ -3,7 +3,7 @@ import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock
-from chatbot import CarServiceAdvisorChatbot, DOMAIN_REDIRECT, build_system_instructions, load_car_service_context
+from chatbot import CarServiceAdvisorChatbot, DOMAIN_REDIRECT, DomainValidationError, build_system_instructions, load_car_service_context
 
 
 def verdict(allowed=True):
@@ -72,6 +72,25 @@ class DomainGuardrailTests(unittest.TestCase):
                 self.assertEqual(self.client.responses.create.call_count, 1)
                 self.assertIsNone(self.bot.previous_response_id)
 
+    def test_short_symptoms_and_greetings_reach_semantic_validation(self):
+        for message in ["red indicator light on dash", "won't turn over",
+                        "smoke from under the bonnet", "Hi", "ABS light on"]:
+            with self.subTest(message=message):
+                self.bot.reset_conversation()
+                self.client.reset_mock()
+                self.client.responses.create.side_effect = [verdict(), answer("Which warning symbol do you see?")]
+                self.assertEqual(self.bot.ask(message), "Which warning symbol do you see?")
+                self.assertEqual(self.client.responses.create.call_count, 2)
+                payload = json.loads(self.client.responses.create.call_args_list[0].kwargs["input"])
+                self.assertEqual(payload["candidate"], message)
+                self.assertEqual(payload["accepted_history"], [])
+
+    def test_unrelated_questions_without_keywords_are_still_classified(self):
+        self.client.responses.create.side_effect = [verdict(False)]
+        self.assertEqual(self.bot.ask("Explain ancient pottery"), DOMAIN_REDIRECT)
+        self.assertEqual(self.client.responses.create.call_count, 1)
+        self.assertEqual(self.bot._domain_history, [])
+
     def test_followups_keep_memory_and_rejections_do_not_poison_it(self):
         self.client.responses.create.side_effect = [verdict(), answer("When does the brake noise occur?")]
         self.bot.ask("My brakes are making noise.")
@@ -120,7 +139,8 @@ class DomainGuardrailTests(unittest.TestCase):
             with self.subTest(value=str(value)):
                 self.client.reset_mock()
                 self.client.responses.create.side_effect = [value]
-                self.assertEqual(self.bot.ask("My car needs service"), DOMAIN_REDIRECT)
+                with self.assertRaises(DomainValidationError):
+                    self.bot.ask("My car needs service")
                 self.assertEqual(self.client.responses.create.call_count, 1)
                 self.assertEqual(self.bot.turn_count, 0)
 
@@ -131,8 +151,11 @@ class DomainGuardrailTests(unittest.TestCase):
         self.assertEqual(self.bot._domain_history, [])
         self.assertIsNone(self.bot.previous_response_id)
         self.client.reset_mock()
+        self.client.responses.create.side_effect = [verdict(False)]
         self.assertEqual(self.bot.ask("Only when stopping"), DOMAIN_REDIRECT)
-        self.client.responses.create.assert_not_called()
+        self.assertEqual(self.client.responses.create.call_count, 1)
+        payload = json.loads(self.client.responses.create.call_args.kwargs["input"])
+        self.assertEqual(payload["accepted_history"], [])
 
     def test_generation_error_preserves_existing_error_handling_and_memory(self):
         self.client.responses.create.side_effect = [verdict(), RuntimeError("generation failure")]
