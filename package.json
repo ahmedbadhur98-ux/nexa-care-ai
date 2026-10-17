@@ -1,0 +1,1 @@
+{"name":"nexa-care-streamlit","private":true,"scripts":{"build":"esbuild bridge-source.js --bundle --minify --outfile=frontend/bridge.js"},"dependencies":{"streamlit-component-lib":"^2.0.0"},"devDependencies":{"esbuild":"^0.25.0"}}

@@ -1,0 +1,10 @@
+.venv/
+node_modules/
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+__pycache__/
+*.pyc
+qa/
+*.zip
