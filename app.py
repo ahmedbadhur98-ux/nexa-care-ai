@@ -28,7 +28,9 @@ def setting(name, default=""):
 
 context = load_car_service_context(ROOT / "car_service_context.json")
 api_key = setting("OPENAI_API_KEY")
-portfolio_url = setting("PORTFOLIO_URL", "https://eclipse-private-aviation-copy.ahmedbadhur98.chatgpt.site")
+portfolio_url = setting("PORTFOLIO_URL", "https://ahmed-ai-portfolio-drab.vercel.app")
+if portfolio_url.rstrip("/") == "https://eclipse-private-aviation-copy.ahmedbadhur98.chatgpt.site":
+    portfolio_url = "https://ahmed-ai-portfolio-drab.vercel.app"
 model = setting("OPENAI_MODEL", "gpt-5.6")
 if "nexa_messages" not in st.session_state:
     st.session_state.nexa_messages = [{"role": "assistant", "content": WELCOME}]
